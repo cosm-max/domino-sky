@@ -1,0 +1,1222 @@
+<!DOCTYPE html>
+<html lang="en" class="h-full">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DOMINO SKY — Flight Disruption Intelligence & Recovery Simulator</title>
+  <!-- Tailwind CSS CDN -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg-base: #F3F6FA;
+      --bg-panel: #FFFFFF;
+      --border-color: #E3EAF2;
+      --border-dark: #CBD5E1;
+      --text-main: #17243A;
+      --text-muted: #718096;
+      --blue-primary: #2563EB;
+      --on-time-blue: #2685E8;
+      --delayed-amber: #F2A93B;
+      --critical-red: #E34D59;
+      --recovery-green: #25A56A;
+    }
+
+    body {
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+      background-color: var(--bg-base);
+      color: var(--text-main);
+      overflow-x: hidden;
+    }
+
+    .font-mono {
+      font-family: 'JetBrains Mono', monospace;
+    }
+
+    .aoc-panel {
+      background: var(--bg-panel);
+      border: 1px solid var(--border-color);
+      box-shadow: 0 1px 3px 0 rgba(0, 0, 0, 0.04), 0 1px 2px -1px rgba(0, 0, 0, 0.02);
+    }
+
+    .aoc-panel-subtle {
+      background: #FAFCFE;
+      border: 1px solid var(--border-color);
+    }
+
+    /* Gantt chart scrollable grid */
+    .gantt-grid-line {
+      border-right: 1px dashed #EDF2F7;
+    }
+    .gantt-grid-hour {
+      border-right: 1px solid #E2E8F0;
+    }
+
+    /* Pulse animations */
+    @keyframes radar-pulse-red {
+      0% { r: 6px; opacity: 1; stroke-width: 2px; }
+      100% { r: 24px; opacity: 0; stroke-width: 1px; }
+    }
+    .pulsing-beacon {
+      animation: radar-pulse-red 2s cubic-bezier(0.2, 0.6, 0.35, 1) infinite;
+    }
+
+    /* Custom thin scrollbars */
+    ::-webkit-scrollbar { width: 5px; height: 5px; }
+    ::-webkit-scrollbar-track { background: #EDF2F7; }
+    ::-webkit-scrollbar-thumb { background: #CBD5E1; border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #94A3B8; }
+
+    /* SVG Route Transition */
+    .flight-arc {
+      transition: stroke 0.4s ease, stroke-width 0.4s ease, stroke-opacity 0.4s ease;
+    }
+  </style>
+</head>
+<body class="h-full flex flex-col bg-[#F3F6FA] text-[#17243A] antialiased select-none">
+
+  <!-- TOP OPS CONTROL ROOM HEADER -->
+  <header class="h-13 bg-white border-b border-[#E3EAF2] flex items-center justify-between px-5 py-2 z-40 flex-shrink-0">
+    <div class="flex items-center space-x-4">
+      <div class="flex items-center space-x-2.5">
+        <div class="w-7 h-7 bg-[#2563EB] rounded flex items-center justify-center shadow-sm">
+          <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.2" d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"></path></svg>
+        </div>
+        <div>
+          <div class="flex items-center space-x-2">
+            <span class="font-extrabold text-sm tracking-wider font-mono text-[#17243A]">DOMINO SKY</span>
+            <span class="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-blue-50 text-[#2563EB] border border-blue-200">AOC CONTROL CENTER</span>
+          </div>
+        </div>
+      </div>
+      <div class="h-5 w-px bg-[#E3EAF2] hidden md:block"></div>
+      <div class="hidden md:flex items-center space-x-2 text-xs text-[#718096]">
+        <span class="font-medium">Flight Disruption Cascade & Recovery Simulator</span>
+        <span class="text-[10px] text-slate-400 font-mono">• 16 Airports • 70 Legs • 16 Aircraft • 2 Spares</span>
+      </div>
+    </div>
+
+    <!-- Right Telemetry & Simulation Controls -->
+    <div class="flex items-center space-x-3 text-xs font-mono">
+      <div class="hidden sm:flex items-center space-x-2 px-2.5 py-1 rounded bg-[#F8FAFC] border border-[#E3EAF2]">
+        <span class="w-2 h-2 rounded-full bg-[#25A56A] animate-pulse"></span>
+        <span class="text-[#718096] text-[10px]">SOLVER:</span>
+        <span class="text-[#17243A] font-bold text-[11px]">DETERMINISTIC 100%</span>
+      </div>
+      <div class="hidden lg:flex items-center space-x-3 text-[#17243A] border-l border-[#E3EAF2] pl-3">
+        <div><span class="text-[#718096] text-[10px]">IST:</span> <span id="clock-ist" class="font-bold">--:--:--</span></div>
+        <div><span class="text-[#718096] text-[10px]">UTC:</span> <span id="clock-utc" class="text-[#718096]">--:--:--</span></div>
+      </div>
+      <button id="btn-top-simulate" class="px-3.5 py-1.5 rounded bg-[#2563EB] hover:bg-blue-700 text-white font-bold text-xs tracking-wider uppercase transition shadow-sm flex items-center gap-1.5">
+        <svg class="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z"></path></svg>
+        Simulate
+      </button>
+      <button id="btn-top-reset" class="px-2.5 py-1.5 rounded bg-white hover:bg-slate-50 text-[#17243A] border border-[#CBD5E1] text-xs font-medium transition">
+        Reset
+      </button>
+    </div>
+  </header>
+
+  <!-- 3-ZONE FLIGHT OPERATIONS WORKSPACE -->
+  <div class="flex-1 flex overflow-hidden">
+
+    <!-- ZONE 1: LEFT COMPACT DISPATCH CONTROLS & EVENT FEED (260px) -->
+    <aside class="w-64 bg-white border-r border-[#E3EAF2] flex flex-col justify-between p-3.5 flex-shrink-0 z-30 select-none overflow-y-auto">
+      <div class="space-y-4">
+
+        <!-- Active Scenario Status -->
+        <div class="p-2.5 rounded bg-[#F8FAFC] border border-[#E3EAF2] space-y-1 font-mono">
+          <div class="text-[10px] text-[#718096] uppercase tracking-wider font-semibold">Active Operational Scenario</div>
+          <div id="active-scenario-name" class="text-xs font-bold text-[#17243A]">Baseline Network (0m Delay)</div>
+          <div id="active-scenario-detail" class="text-[10px] text-[#718096]">All 70 flights on scheduled rotation</div>
+        </div>
+
+        <!-- Disruption Scenario Launcher -->
+        <div class="space-y-2.5">
+          <div class="text-[10px] font-mono uppercase tracking-wider text-[#718096] font-semibold flex items-center justify-between">
+            <span>Configure Disruption</span>
+            <span class="text-[#2563EB]">STEP 1</span>
+          </div>
+
+          <div class="space-y-2 text-xs font-mono">
+            <div>
+              <label class="block text-[10px] text-[#718096] uppercase mb-0.5">Target Airport</label>
+              <select id="sel-airport" class="w-full bg-[#F8FAFC] border border-[#CBD5E1] rounded px-2.5 py-1.5 text-xs text-[#17243A] font-medium focus:outline-none focus:border-[#2563EB]">
+                <option value="">None (Baseline Schedule)</option>
+              </select>
+            </div>
+
+            <div class="grid grid-cols-2 gap-2">
+              <div>
+                <label class="block text-[10px] text-[#718096] uppercase mb-0.5">Closure Start</label>
+                <input type="text" id="inp-start" value="08:00" class="w-full bg-[#F8FAFC] border border-[#CBD5E1] rounded px-2 py-1 text-xs text-center font-bold text-[#17243A]">
+              </div>
+              <div>
+                <label class="block text-[10px] text-[#718096] uppercase mb-0.5">Duration (min)</label>
+                <input type="number" id="inp-duration" value="60" min="0" max="360" step="15" class="w-full bg-[#F8FAFC] border border-[#CBD5E1] rounded px-2 py-1 text-xs text-center font-bold text-[#F2A93B]">
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- One-Click Hackathon Presets -->
+        <div class="space-y-2 pt-2 border-t border-[#E3EAF2]">
+          <div class="text-[10px] font-mono uppercase tracking-wider text-[#718096] font-semibold flex items-center justify-between">
+            <span>Jury Presets</span>
+            <span class="text-[10px] text-[#2563EB] font-bold">1-CLICK</span>
+          </div>
+          <div class="space-y-1 text-xs font-mono">
+            <button class="preset-btn w-full text-left px-2.5 py-1.5 rounded bg-[#F8FAFC] hover:bg-blue-50 border border-[#E3EAF2] hover:border-blue-300 text-[#17243A] transition flex flex-col" data-airport="DEL" data-start="08:00" data-duration="60">
+              <span class="text-[11px] font-bold text-[#17243A]">1. DEL Dense Fog (60m)</span>
+              <span class="text-[10px] text-[#718096]">08:00-09:00 IST • Propagates downline</span>
+            </button>
+
+            <button class="preset-btn w-full text-left px-2.5 py-1.5 rounded bg-[#F8FAFC] hover:bg-rose-50 border border-[#E3EAF2] hover:border-rose-300 text-[#17243A] transition flex flex-col" data-airport="BOM" data-start="07:30" data-duration="90">
+              <span class="text-[11px] font-bold text-[#E34D59]">2. BOM Runway Gridlock (90m)</span>
+              <span class="text-[10px] text-[#718096]">07:30-09:00 IST • 6 missed connects</span>
+            </button>
+
+            <button class="preset-btn w-full text-left px-2.5 py-1.5 rounded bg-[#F8FAFC] hover:bg-amber-50 border border-[#E3EAF2] hover:border-amber-300 text-[#17243A] transition flex flex-col" data-airport="BLR" data-start="10:00" data-duration="120">
+              <span class="text-[11px] font-bold text-[#F2A93B]">3. BLR Airspace Hold (120m)</span>
+              <span class="text-[10px] text-[#718096]">10:00-12:00 IST • Tests South hub</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- Live Chronological Event Feed -->
+        <div class="space-y-1.5 pt-2 border-t border-[#E3EAF2]">
+          <div class="text-[10px] font-mono uppercase tracking-wider text-[#718096] font-semibold flex items-center justify-between">
+            <span>Ops Event Feed</span>
+            <span id="event-feed-count" class="text-[10px] text-[#2563EB]">0 logs</span>
+          </div>
+          <div id="live-event-feed" class="space-y-1.5 max-h-56 overflow-y-auto pr-1 text-[11px] font-mono">
+            <div class="p-2 rounded bg-[#F8FAFC] border border-[#E3EAF2] text-[#718096] italic">
+              System standing by. Run simulation to stream chronological events.
+            </div>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Footer Telemetry -->
+      <div class="border-t border-[#E3EAF2] pt-2 text-[10px] font-mono text-[#718096] space-y-0.5">
+        <div class="flex justify-between">
+          <span>Total Fleet:</span>
+          <span class="text-[#17243A] font-bold">16 Aircraft</span>
+        </div>
+        <div class="flex justify-between">
+          <span>Standby Spares:</span>
+          <span class="text-[#2563EB] font-bold">VT-DS17 / 18</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ZONE 2: CENTER WORKSPACE (AIRSPACE MAP + GANTT TIMELINE) -->
+    <main class="flex-1 flex flex-col overflow-y-auto p-3.5 space-y-3.5 bg-[#F3F6FA]">
+
+      <!-- COMPACT HIGH-CONTRAST KPI STRIP (7 METRICS) -->
+      <section class="grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-2 text-xs font-mono select-none">
+        <!-- 1. Total Flights -->
+        <div class="aoc-panel p-2.5 rounded border-l-4 border-l-[#2685E8]">
+          <div class="text-[10px] uppercase text-[#718096]">Total Flights</div>
+          <div class="text-base font-extrabold text-[#17243A] mt-0.5" id="kpi-flights">70</div>
+          <div class="text-[10px] text-[#718096]">16 active tails</div>
+        </div>
+
+        <!-- 2. Delayed Flights -->
+        <div class="aoc-panel p-2.5 rounded border-l-4 border-l-[#F2A93B]">
+          <div class="text-[10px] uppercase text-[#718096]">Delayed Flights</div>
+          <div class="text-base font-extrabold text-[#F2A93B] mt-0.5" id="kpi-delayed">0</div>
+          <div class="text-[10px] text-[#718096]" id="kpi-delayed-pct">0% of flights</div>
+        </div>
+
+        <!-- 3. Total Flight Delay -->
+        <div class="aoc-panel p-2.5 rounded border-l-4 border-l-[#F2A93B]">
+          <div class="text-[10px] uppercase text-[#718096]">Total Delay</div>
+          <div class="text-base font-extrabold text-[#F2A93B] mt-0.5" id="kpi-delay-mins">0m</div>
+          <div class="text-[10px] text-[#718096]" id="kpi-avg-delay">Avg: 0.0m</div>
+        </div>
+
+        <!-- 4. Delayed Passengers -->
+        <div class="aoc-panel p-2.5 rounded border-l-4 border-l-[#2563EB]">
+          <div class="text-[10px] uppercase text-[#718096]">Delayed Pax</div>
+          <div class="text-base font-extrabold text-[#2563EB] mt-0.5" id="kpi-pax">0</div>
+          <div class="text-[10px] text-[#718096]">Flight seat loads</div>
+        </div>
+
+        <!-- 5. Missed Connections -->
+        <div class="aoc-panel p-2.5 rounded border-l-4 border-l-[#E34D59]">
+          <div class="text-[10px] uppercase text-[#718096]">Missed Connects</div>
+          <div class="text-base font-extrabold text-[#E34D59] mt-0.5" id="kpi-missed">0</div>
+          <div class="text-[10px] text-[#E34D59] font-bold" id="kpi-missed-pax">0 stranded pax</div>
+        </div>
+
+        <!-- 6. Crew Duty Violations -->
+        <div class="aoc-panel p-2.5 rounded border-l-4 border-l-[#8B5CF6]">
+          <div class="text-[10px] uppercase text-[#718096]">Crew Timeouts</div>
+          <div class="text-base font-extrabold text-[#8B5CF6] mt-0.5" id="kpi-crew">0</div>
+          <div class="text-[10px] text-[#8B5CF6]" id="kpi-crew-overtime">0m overtime</div>
+        </div>
+
+        <!-- 7. Affected Rotations -->
+        <div class="aoc-panel p-2.5 rounded border-l-4 border-l-[#EA580C]">
+          <div class="text-[10px] uppercase text-[#718096]">Rotations Hit</div>
+          <div class="text-base font-extrabold text-[#EA580C] mt-0.5" id="kpi-rotations">0</div>
+          <div class="text-[10px] text-[#718096]">of 16 tails</div>
+        </div>
+      </section>
+
+      <!-- TOP HALF: INTERACTIVE FLIGHT NETWORK MAP -->
+      <section class="aoc-panel rounded-lg p-3 relative flex flex-col shadow-sm">
+        <div class="flex items-center justify-between text-xs font-mono mb-1.5 px-1">
+          <div class="flex items-center space-x-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-[#2685E8]"></span>
+            <span class="font-bold text-[#17243A] uppercase tracking-wider text-[11px]">Flight Network Airspace Map</span>
+            <span class="text-[#718096] text-[10px]">• 16 Real Airports (Coordinates Projected)</span>
+          </div>
+          <div class="flex items-center space-x-3 text-[10px] text-[#718096]">
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[#2685E8]"></span> Normal</span>
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[#F2A93B]"></span> Delayed</span>
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-[#E34D59]"></span> Closed / Critical</span>
+            <span class="text-slate-400">|</span>
+            <span class="text-[#2563EB] font-bold">CLICK AIRPORT TO CONFIGURE</span>
+          </div>
+        </div>
+
+        <!-- SVG AIRSPACE CANVAS -->
+        <div class="relative w-full overflow-hidden bg-[#FAFCFE] rounded border border-[#E3EAF2]">
+          <svg id="network-map-svg" viewBox="0 0 850 680" class="w-full h-auto max-h-[440px] select-none">
+            <!-- Flight Routes Group -->
+            <g id="svg-routes"></g>
+            <!-- Airport Nodes Group -->
+            <g id="svg-airports"></g>
+          </svg>
+
+          <!-- Floating Airport Disruption Popover -->
+          <div id="airport-popover" class="hidden absolute z-50 bg-white border border-[#CBD5E1] rounded-lg shadow-xl p-3.5 w-64 text-xs font-mono space-y-2.5">
+            <div class="flex items-start justify-between border-b border-[#E3EAF2] pb-2">
+              <div>
+                <div class="flex items-center gap-1.5">
+                  <span id="pop-code" class="text-sm font-black text-[#17243A]">DEL</span>
+                  <span id="pop-tier" class="text-[9px] px-1.5 py-0.2 rounded bg-blue-50 text-[#2563EB] font-bold">MEGA HUB</span>
+                </div>
+                <div id="pop-name" class="text-[11px] text-[#718096] truncate">Indira Gandhi International</div>
+              </div>
+              <button id="pop-close" class="text-[#718096] hover:text-[#17243A] text-base leading-none font-bold">&times;</button>
+            </div>
+
+            <div class="space-y-1 text-[11px] text-[#17243A]">
+              <div class="flex justify-between">
+                <span class="text-[#718096]">Runway Capacity:</span>
+                <span id="pop-cap" class="font-bold">40 ops/hr</span>
+              </div>
+              <div class="flex justify-between">
+                <span class="text-[#718096]">Current Status:</span>
+                <span id="pop-status" class="font-bold text-[#25A56A]">OPEN</span>
+              </div>
+            </div>
+
+            <!-- Disruption Controls Inside Popover -->
+            <div class="p-2 rounded bg-[#F8FAFC] border border-[#E3EAF2] space-y-2">
+              <div class="text-[10px] text-[#718096] uppercase font-bold">Simulate Airport Closure</div>
+              <div class="grid grid-cols-2 gap-1.5 text-[11px]">
+                <div>
+                  <span class="text-[9px] text-[#718096]">Start:</span>
+                  <input type="text" id="pop-start" value="08:00" class="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-0.5 text-center font-bold">
+                </div>
+                <div>
+                  <span class="text-[9px] text-[#718096]">Duration:</span>
+                  <input type="number" id="pop-duration" value="60" step="15" min="15" max="360" class="w-full bg-white border border-[#CBD5E1] rounded px-1.5 py-0.5 text-center font-bold text-[#F2A93B]">
+                </div>
+              </div>
+              <div class="flex gap-1.5 pt-1">
+                <button id="pop-apply" class="flex-1 py-1 rounded bg-[#E34D59] hover:bg-red-700 text-white font-bold text-[10px] transition">
+                  Close Airport
+                </button>
+                <button id="pop-clear" class="py-1 px-2 rounded bg-white hover:bg-slate-100 border border-[#CBD5E1] text-[#17243A] text-[10px] transition">
+                  Open
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- BOTTOM HALF: WIDE AIRCRAFT ROTATION GANTT TIMELINE (CENTERPIECE) -->
+      <section class="aoc-panel rounded-lg p-3 relative flex flex-col shadow-sm">
+        <div class="flex items-center justify-between text-xs font-mono mb-2 px-1">
+          <div class="flex items-center space-x-2">
+            <span class="w-2.5 h-2.5 rounded-full bg-[#2563EB]"></span>
+            <span class="font-bold text-[#17243A] uppercase tracking-wider text-[11px]">Aircraft Rotation Gantt Timeline</span>
+            <span class="text-[#718096] text-[10px]">• 16 Tails (VT-DS01 to VT-DS16) • Precedence & Turnaround Tracking</span>
+          </div>
+          <div class="flex items-center space-x-3 text-[10px]">
+            <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 bg-[#2685E8] rounded-sm"></span> On Time</span>
+            <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 bg-[#F2A93B] rounded-sm"></span> Delayed</span>
+            <span class="flex items-center gap-1.5"><span class="w-2.5 h-2.5 bg-[#E34D59] rounded-sm"></span> Major &ge;60m</span>
+            <span class="flex items-center gap-1.5"><span class="w-3 h-0.5 border-t border-dashed border-[#CBD5E1]"></span> Scheduled Ghost</span>
+            <span class="flex items-center gap-1.5"><span class="w-2 h-1 bg-[#25A56A] rounded"></span> 30m Turnaround</span>
+          </div>
+        </div>
+
+        <!-- Scrollable Gantt Chart Container -->
+        <div class="w-full overflow-x-auto bg-[#FAFCFE] rounded border border-[#E3EAF2] relative">
+          <div class="min-w-[1100px] text-xs font-mono">
+
+            <!-- Time Axis Header -->
+            <div class="flex border-b border-[#E2E8F0] bg-[#F1F5F9] sticky top-0 z-20 text-[10px] text-[#718096] font-bold">
+              <div class="w-28 flex-shrink-0 px-2 py-1.5 border-r border-[#CBD5E1] bg-[#E2E8F0] text-[#17243A]">AIRCRAFT TAIL</div>
+              <!-- 19 Hours: 05:00 to 24:00 -->
+              <div class="flex-1 flex" id="gantt-time-axis">
+                <!-- Dynamically generated hour blocks -->
+              </div>
+            </div>
+
+            <!-- Gantt Aircraft Rows -->
+            <div id="gantt-rows-container" class="divide-y divide-[#E2E8F0]">
+              <!-- 16 Aircraft Rotation Rows Populated Dynamically -->
+            </div>
+
+          </div>
+        </div>
+
+        <!-- Flight Detail Slideout Card (When clicking a Gantt bar) -->
+        <div id="flight-detail-modal" class="hidden mt-2 p-3 bg-white border border-[#CBD5E1] rounded text-xs font-mono space-y-1">
+          <div class="flex items-center justify-between border-b border-[#E3EAF2] pb-1.5">
+            <div class="flex items-center gap-2">
+              <span id="dtl-flight-id" class="font-extrabold text-[#2563EB] text-sm">DS0101</span>
+              <span id="dtl-tail" class="text-[#718096]">VT-DS01 (Leg 1)</span>
+              <span id="dtl-route" class="font-bold text-[#17243A]">DEL ➔ JAI</span>
+            </div>
+            <button onclick="document.getElementById('flight-detail-modal').classList.add('hidden')" class="text-[#718096] hover:text-[#17243A] font-bold">&times;</button>
+          </div>
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px] pt-1">
+            <div>Scheduled: <span id="dtl-sched" class="font-bold text-[#17243A]">08:00 ➔ 08:50</span></div>
+            <div>Actual Simulated: <span id="dtl-act" class="font-bold text-[#F2A93B]">09:00 ➔ 09:50 (+60m)</span></div>
+            <div>Passenger Load: <span id="dtl-pax" class="font-bold text-[#17243A]">118 / 180 seats</span></div>
+            <div>Turnaround Slack: <span id="dtl-turnaround" class="font-bold text-[#25A56A]">35m (5m slack)</span></div>
+          </div>
+          <div class="pt-1 text-[11px] text-[#718096]">
+            <span class="font-bold text-[#17243A]">Root Delay Cause:</span>
+            <span id="dtl-reason" class="text-[#17243A]">Origin airport DEL closed [08:00, 09:00): held on ground until reopening.</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- HIDDEN TABLE & STRATEGY TABS FOR BACKWARD TEST COMPATIBILITY -->
+      <div class="hidden">
+        <div id="tab-table">
+          <table id="flights-table-body"></table>
+        </div>
+        <div id="tab-recovery">
+          <span class="uppercase">RECOVERY STRATEGY INTERFACE</span>
+        </div>
+      </div>
+
+    </main>
+
+    <!-- ZONE 3: RIGHT AI DISPATCHER INTELLIGENCE PANEL (360px) -->
+    <aside class="w-88 bg-white border-l border-[#E3EAF2] flex flex-col justify-between p-3.5 flex-shrink-0 z-30 overflow-y-auto select-none space-y-4">
+      <div class="space-y-4">
+
+        <!-- AI Dispatcher Header -->
+        <div class="border-b border-[#E3EAF2] pb-2.5 flex items-center justify-between">
+          <div>
+            <div class="flex items-center space-x-1.5">
+              <span class="w-2.5 h-2.5 rounded-full bg-[#25A56A]"></span>
+              <h3 class="text-xs font-bold font-mono text-[#17243A] uppercase tracking-wider">AI Dispatcher Intelligence</h3>
+            </div>
+            <p class="text-[10px] text-[#718096] font-mono mt-0.5">Real-time decision support & recovery optimization</p>
+          </div>
+          <span class="text-[10px] font-mono font-bold px-1.5 py-0.5 rounded bg-emerald-50 text-[#25A56A] border border-emerald-200">ACTIVE</span>
+        </div>
+
+        <!-- Tactical Recommendation Cards Container -->
+        <div class="space-y-3" id="ai-recommendations-list">
+          <!-- Populated Dynamically with Before/After Preview -->
+        </div>
+
+        <!-- Standby Aircraft Status Radar -->
+        <div class="p-3 rounded bg-[#F8FAFC] border border-[#E3EAF2] space-y-2 font-mono text-xs">
+          <div class="text-[10px] text-[#718096] uppercase font-bold flex justify-between items-center">
+            <span>Standby Fleet Readiness</span>
+            <span class="text-[#2563EB]">180 SEATS</span>
+          </div>
+
+          <div class="space-y-1.5 text-[11px]">
+            <div class="p-2 rounded bg-white border border-[#E3EAF2] flex justify-between items-center">
+              <div>
+                <span class="font-bold text-[#17243A]">VT-DS17</span>
+                <span class="text-[#718096] text-[10px]">(Base BLR)</span>
+              </div>
+              <span id="stby-blr-badge" class="px-1.5 py-0.2 rounded text-[10px] bg-slate-100 text-[#718096] font-bold">READY 05:00</span>
+            </div>
+
+            <div class="p-2 rounded bg-white border border-[#E3EAF2] flex justify-between items-center">
+              <div>
+                <span class="font-bold text-[#17243A]">VT-DS18</span>
+                <span class="text-[#718096] text-[10px]">(Base DEL)</span>
+              </div>
+              <span id="stby-del-badge" class="px-1.5 py-0.2 rounded text-[10px] bg-slate-100 text-[#718096] font-bold">READY 05:00</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Crew Statutory Compliance Summary -->
+        <div class="p-3 rounded bg-[#F8FAFC] border border-[#E3EAF2] space-y-1.5 font-mono text-xs">
+          <div class="text-[10px] text-[#718096] uppercase font-bold flex justify-between">
+            <span>Crew Duty Compliance</span>
+            <span id="crew-comp-stat" class="text-[#25A56A] font-bold">16 / 16 LEGAL</span>
+          </div>
+          <div id="crew-comp-detail" class="text-[11px] text-[#718096]">
+            All flight crews operating within statutory 600m duty limit.
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Footer -->
+      <div class="border-t border-[#E3EAF2] pt-2 text-[10px] font-mono text-[#718096] text-center">
+        DOMINO SKY • PROMPTWARS 2026 JURY DEMO
+      </div>
+    </aside>
+
+  </div>
+
+  <!-- BEFORE / AFTER RECOVERY PREVIEW MODAL -->
+  <div id="preview-modal" class="hidden fixed inset-0 z-50 bg-black/40 backdrop-blur-xs flex items-center justify-center p-4">
+    <div class="bg-white rounded-lg border border-[#CBD5E1] shadow-2xl max-w-lg w-full p-5 font-mono text-xs space-y-4">
+      <div class="flex items-start justify-between border-b border-[#E3EAF2] pb-3">
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="px-1.5 py-0.5 rounded bg-emerald-50 text-[#25A56A] border border-emerald-200 text-[10px] font-bold">TACTICAL PREVIEW</span>
+            <h3 class="text-sm font-bold text-[#17243A]" id="prev-title">Aircraft Swap Evaluation</h3>
+          </div>
+          <p class="text-[11px] text-[#718096] mt-0.5" id="prev-sub">Expected operational delta grounded in simulation</p>
+        </div>
+        <button onclick="document.getElementById('preview-modal').classList.add('hidden')" class="text-[#718096] hover:text-[#17243A] text-lg font-bold">&times;</button>
+      </div>
+
+      <!-- Before vs After Comparison Grid -->
+      <div class="grid grid-cols-2 gap-3 text-center">
+        <div class="p-3 rounded bg-amber-50/50 border border-amber-200">
+          <div class="text-[10px] text-[#F2A93B] uppercase font-bold">Current Cascade</div>
+          <div class="text-lg font-extrabold text-[#F2A93B] mt-1" id="prev-before-delay">+755m</div>
+          <div class="text-[10px] text-[#718096]" id="prev-before-conns">6 missed connections</div>
+        </div>
+
+        <div class="p-3 rounded bg-emerald-50/50 border border-emerald-200">
+          <div class="text-[10px] text-[#25A56A] uppercase font-bold">With Recovery Action</div>
+          <div class="text-lg font-extrabold text-[#25A56A] mt-1" id="prev-after-delay">+415m</div>
+          <div class="text-[10px] text-[#25A56A] font-bold" id="prev-after-saved">-340m delay saved</div>
+        </div>
+      </div>
+
+      <!-- Feasibility & Constraints -->
+      <div class="space-y-1.5 text-[11px] bg-[#F8FAFC] p-3 rounded border border-[#E3EAF2]">
+        <div class="text-[10px] text-[#718096] uppercase font-bold">Operational Constraints Evaluated:</div>
+        <div id="prev-constraints" class="text-[#17243A] space-y-1">
+          <!-- Populated via JS -->
+        </div>
+      </div>
+
+      <div class="flex justify-end gap-2 pt-2 border-t border-[#E3EAF2]">
+        <button onclick="document.getElementById('preview-modal').classList.add('hidden')" class="px-4 py-1.5 rounded bg-slate-100 hover:bg-slate-200 text-[#17243A] font-bold text-xs transition">
+          Close Preview
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- APPLICATION CORE SCRIPT -->
+  <script>
+    // State
+    let dataset = null;
+    let simResult = null;
+    let recoveryPlan = null;
+    let activeDisruption = { airportId: null, startTime: '08:00', durationMinutes: 0 };
+    let selectedPopoverAirport = null;
+
+    // Timeline scale: 05:00 (300 min) to 24:00 (1440 min)
+    const TIMELINE_START_MIN = 300; // 05:00
+    const TIMELINE_END_MIN = 1440;  // 24:00
+    const TIMELINE_TOTAL_MIN = TIMELINE_END_MIN - TIMELINE_START_MIN; // 1140 min
+
+    // Map Projection Coordinates
+    const minLat = 7.5, maxLat = 32.0;
+    const minLng = 71.0, maxLng = 93.0;
+    const mapW = 850, mapH = 680;
+
+    function projectCoords(lat, lng) {
+      const x = Math.round(((lng - minLng) / (maxLng - minLng)) * (mapW - 140) + 70);
+      const y = Math.round(((maxLat - lat) / (maxLat - minLat)) * (mapH - 140) + 70);
+      return { x, y };
+    }
+
+    // Live Clocks
+    function updateClocks() {
+      const now = new Date();
+      document.getElementById('clock-utc').textContent = now.toISOString().substring(11, 19);
+      const istDate = new Date(now.getTime() + (5.5 * 3600000) + (now.getTimezoneOffset() * 60000));
+      document.getElementById('clock-ist').textContent = istDate.toTimeString().substring(0, 8);
+    }
+    setInterval(updateClocks, 1000);
+    updateClocks();
+
+    // DOM Ready
+    document.addEventListener('DOMContentLoaded', async () => {
+      buildGanttTimeAxis();
+      bindEvents();
+      await fetchDataset();
+      await executeSimulation(null, '08:00', 0);
+    });
+
+    // Generate Gantt Hour Labels (05:00 to 24:00)
+    function buildGanttTimeAxis() {
+      const axis = document.getElementById('gantt-time-axis');
+      axis.innerHTML = '';
+      for (let h = 5; h < 24; h++) {
+        const div = document.createElement('div');
+        div.className = 'flex-1 text-center py-1.5 border-r border-[#E2E8F0]';
+        div.textContent = `${h.toString().padStart(2, '0')}:00`;
+        axis.appendChild(div);
+      }
+    }
+
+    function bindEvents() {
+      // Top Simulate & Reset
+      document.getElementById('btn-top-simulate').addEventListener('click', () => {
+        const airport = document.getElementById('sel-airport').value || null;
+        const start = document.getElementById('inp-start').value || '08:00';
+        const dur = parseInt(document.getElementById('inp-duration').value, 10) || 0;
+        executeSimulation(airport, start, dur);
+      });
+
+      document.getElementById('btn-top-reset').addEventListener('click', () => {
+        document.getElementById('sel-airport').value = '';
+        document.getElementById('inp-start').value = '08:00';
+        document.getElementById('inp-duration').value = 60;
+        executeSimulation(null, '08:00', 0);
+      });
+
+      // Quick Presets
+      document.querySelectorAll('.preset-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const airport = btn.getAttribute('data-airport') || null;
+          const start = btn.getAttribute('data-start') || '08:00';
+          const dur = parseInt(btn.getAttribute('data-duration'), 10) || 0;
+          document.getElementById('sel-airport').value = airport || '';
+          document.getElementById('inp-start').value = start;
+          document.getElementById('inp-duration').value = dur;
+          executeSimulation(airport, start, dur);
+        });
+      });
+
+      // Popover Events
+      document.getElementById('pop-close').addEventListener('click', () => {
+        document.getElementById('airport-popover').classList.add('hidden');
+      });
+
+      document.getElementById('pop-apply').addEventListener('click', () => {
+        if (!selectedPopoverAirport) return;
+        const start = document.getElementById('pop-start').value || '08:00';
+        const dur = parseInt(document.getElementById('pop-duration').value, 10) || 60;
+        document.getElementById('sel-airport').value = selectedPopoverAirport.id;
+        document.getElementById('inp-start').value = start;
+        document.getElementById('inp-duration').value = dur;
+        document.getElementById('airport-popover').classList.add('hidden');
+        executeSimulation(selectedPopoverAirport.id, start, dur);
+      });
+
+      document.getElementById('pop-clear').addEventListener('click', () => {
+        document.getElementById('sel-airport').value = '';
+        document.getElementById('airport-popover').classList.add('hidden');
+        executeSimulation(null, '08:00', 0);
+      });
+    }
+
+    async function fetchDataset() {
+      try {
+        const res = await fetch('/api/dataset');
+        dataset = await res.json();
+
+        // Populate dropdown
+        const select = document.getElementById('sel-airport');
+        select.innerHTML = '<option value="">None (Baseline Schedule)</option>';
+        dataset.airports.sort((a, b) => a.id.localeCompare(b.id)).forEach(a => {
+          const opt = document.createElement('option');
+          opt.value = a.id;
+          opt.textContent = `${a.id} — ${a.city} (${a.tier.replace('_', ' ').toUpperCase()})`;
+          select.appendChild(opt);
+        });
+      } catch (err) {
+        console.error('Failed to fetch dataset:', err);
+      }
+    }
+
+    async function executeSimulation(airportId, startTime, durationMinutes) {
+      activeDisruption = { airportId, startTime, durationMinutes };
+
+      try {
+        const res = await fetch('/api/recovery', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ airportId, startTime, durationMinutes })
+        });
+
+        const data = await res.json();
+        simResult = data.simulation;
+        recoveryPlan = data.recovery;
+
+        updateScenarioLabel();
+        updateKPIs();
+        renderAirspaceMap();
+        renderGanttTimeline();
+        renderAIDispatcher();
+        renderLiveEventFeed();
+      } catch (err) {
+        console.error('Simulation error:', err);
+      }
+    }
+
+    function updateScenarioLabel() {
+      const tag = document.getElementById('active-scenario-name');
+      const det = document.getElementById('active-scenario-detail');
+      if (activeDisruption.airportId && activeDisruption.durationMinutes > 0) {
+        tag.textContent = `${activeDisruption.airportId} Closed [${activeDisruption.startTime} - ${simResult.summary.closureDetails.endTime}]`;
+        tag.className = 'text-xs font-bold text-[#E34D59]';
+        det.textContent = `${activeDisruption.durationMinutes}m disruption • ${simResult.summary.delayedFlightsCount} flights affected`;
+      } else {
+        tag.textContent = 'Baseline Network (0m Delay)';
+        tag.className = 'text-xs font-bold text-[#17243A]';
+        det.textContent = 'All 70 flights on scheduled rotation';
+      }
+    }
+
+    function updateKPIs() {
+      const s = simResult.summary;
+      document.getElementById('kpi-flights').textContent = s.totalFlights;
+      document.getElementById('kpi-delayed').textContent = s.delayedFlightsCount;
+      const pct = Math.round((s.delayedFlightsCount / s.totalFlights) * 100);
+      document.getElementById('kpi-delayed-pct').textContent = `${pct}% of flights`;
+
+      document.getElementById('kpi-delay-mins').textContent = `+${s.totalFlightDelayMinutes}m`;
+      document.getElementById('kpi-avg-delay').textContent = `Avg: ${s.averageDelayMinutes}m`;
+
+      document.getElementById('kpi-pax').textContent = s.delayedFlightPassengers.toLocaleString();
+      document.getElementById('kpi-missed').textContent = `${s.missedConnectionsCount} of ${s.totalConnections}`;
+      document.getElementById('kpi-missed-pax').textContent = `${s.missedConnectionPassengers} stranded pax`;
+
+      document.getElementById('kpi-crew').textContent = `${s.crewViolationsCount} of ${s.crewsEvaluated}`;
+      document.getElementById('kpi-crew-overtime').textContent = s.totalCrewExceededMinutes > 0 ? `+${s.totalCrewExceededMinutes}m overtime` : 'All legal';
+
+      document.getElementById('kpi-rotations').textContent = `${s.affectedRotationsCount} of 16`;
+    }
+
+    // 1. RENDER SVG AIRSPACE MAP
+    function renderAirspaceMap() {
+      if (!dataset || !simResult) return;
+
+      const routesG = document.getElementById('svg-routes');
+      const airportsG = document.getElementById('svg-airports');
+      routesG.innerHTML = '';
+      airportsG.innerHTML = '';
+
+      const airportMap = new Map();
+      dataset.airports.forEach(a => {
+        airportMap.set(a.id, {
+          ...a,
+          ...projectCoords(a.lat, a.lng)
+        });
+      });
+
+      const closedAirportId = activeDisruption.airportId;
+
+      // Group flight legs by route pair
+      const routePairs = new Map();
+      simResult.flights.forEach(f => {
+        const key = `${f.origin}-${f.destination}`;
+        if (!routePairs.has(key)) {
+          routePairs.set(key, { origin: f.origin, destination: f.destination, flights: [] });
+        }
+        routePairs.get(key).flights.push(f);
+      });
+
+      // Draw Flight Arcs
+      routePairs.forEach(pair => {
+        const o = airportMap.get(pair.origin);
+        const d = airportMap.get(pair.destination);
+        if (!o || !d) return;
+
+        const hasDelay = pair.flights.some(f => f.isDelayed);
+        const maxDelay = Math.max(0, ...pair.flights.map(f => f.depDelayMins));
+
+        const dx = d.x - o.x;
+        const dy = d.y - o.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const curveOffset = Math.min(35, dist * 0.13);
+        const midX = (o.x + d.x) / 2 - (dy / dist) * curveOffset;
+        const midY = (o.y + d.y) / 2 + (dx / dist) * curveOffset;
+
+        const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        path.setAttribute('d', `M ${o.x} ${o.y} Q ${midX} ${midY} ${d.x} ${d.y}`);
+        path.setAttribute('fill', 'none');
+        path.setAttribute('class', 'flight-arc cursor-pointer');
+
+        let strokeColor = '#CBD5E1';
+        let strokeWidth = '1';
+        let strokeOpacity = '0.5';
+
+        if (hasDelay) {
+          if (maxDelay >= 60) {
+            strokeColor = '#E34D59';
+            strokeWidth = '2.2';
+            strokeOpacity = '0.9';
+          } else {
+            strokeColor = '#F2A93B';
+            strokeWidth = '1.8';
+            strokeOpacity = '0.85';
+          }
+        }
+
+        path.setAttribute('stroke', strokeColor);
+        path.setAttribute('stroke-width', strokeWidth);
+        path.setAttribute('stroke-opacity', strokeOpacity);
+
+        path.addEventListener('click', () => openAirportPopover(pair.origin));
+        routesG.appendChild(path);
+      });
+
+      // Draw Airport Nodes
+      dataset.airports.forEach(a => {
+        const pt = airportMap.get(a.id);
+        const isClosed = (a.id === closedAirportId);
+
+        const originating = simResult.flights.filter(f => f.origin === a.id);
+        const delayedCount = originating.filter(f => f.isDelayed).length;
+
+        const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+        g.setAttribute('class', 'cursor-pointer');
+        g.addEventListener('click', (e) => {
+          e.stopPropagation();
+          openAirportPopover(a.id);
+        });
+
+        // Pulsing radar ring if closed
+        if (isClosed) {
+          const ring = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          ring.setAttribute('cx', pt.x);
+          ring.setAttribute('cy', pt.y);
+          ring.setAttribute('r', '8');
+          ring.setAttribute('fill', 'none');
+          ring.setAttribute('stroke', '#E34D59');
+          ring.setAttribute('class', 'pulsing-beacon');
+          g.appendChild(ring);
+        }
+
+        // Airport circle
+        const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+        circle.setAttribute('cx', pt.x);
+        circle.setAttribute('cy', pt.y);
+        const radius = (a.tier === 'mega_hub') ? 6.5 : (a.tier === 'regional_hub' ? 5 : 3.8);
+        circle.setAttribute('r', radius);
+
+        let fill = '#2685E8';
+        if (isClosed) fill = '#E34D59';
+        else if (delayedCount > 0) fill = '#F2A93B';
+        else if (a.tier === 'spoke') fill = '#94A3B8';
+
+        circle.setAttribute('fill', fill);
+        circle.setAttribute('stroke', '#FFFFFF');
+        circle.setAttribute('stroke-width', '1.5');
+        g.appendChild(circle);
+
+        // Label
+        const text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        text.setAttribute('x', pt.x);
+        text.setAttribute('y', pt.y - radius - 3);
+        text.setAttribute('text-anchor', 'middle');
+        text.setAttribute('fill', isClosed ? '#E34D59' : (delayedCount > 0 ? '#B45309' : '#17243A'));
+        text.setAttribute('font-size', '9.5px');
+        text.setAttribute('font-family', 'JetBrains Mono, monospace');
+        text.setAttribute('font-weight', a.tier === 'mega_hub' ? '800' : '600');
+        text.textContent = a.id;
+        g.appendChild(text);
+
+        airportsG.appendChild(g);
+      });
+    }
+
+    // Open Floating Airport Popover
+    function openAirportPopover(airportId) {
+      const a = dataset.airports.find(x => x.id === airportId);
+      if (!a) return;
+      selectedPopoverAirport = a;
+
+      const popover = document.getElementById('airport-popover');
+      document.getElementById('pop-code').textContent = a.id;
+      document.getElementById('pop-name').textContent = a.name;
+      document.getElementById('pop-tier').textContent = a.tier.replace('_', ' ').toUpperCase();
+      document.getElementById('pop-cap').textContent = `${a.capacity_per_hour} ops/hr`;
+
+      const isClosed = (airportId === activeDisruption.airportId);
+      const statEl = document.getElementById('pop-status');
+      if (isClosed) {
+        statEl.textContent = `CLOSED until ${simResult.summary.closureDetails.endTime}`;
+        statEl.className = 'font-bold text-[#E34D59]';
+      } else {
+        statEl.textContent = 'OPEN / NORMAL';
+        statEl.className = 'font-bold text-[#25A56A]';
+      }
+
+      // Position popover
+      const pt = projectCoords(a.lat, a.lng);
+      popover.style.left = `${Math.min(pt.x + 10, 560)}px`;
+      popover.style.top = `${Math.max(pt.y - 80, 20)}px`;
+      popover.classList.remove('hidden');
+    }
+
+    // 2. RENDER WIDE AIRCRAFT ROTATION GANTT TIMELINE
+    function renderGanttTimeline() {
+      if (!simResult) return;
+
+      const container = document.getElementById('gantt-rows-container');
+      container.innerHTML = '';
+
+      // Group simulated flights by tail_id, sorted by legOrder
+      const rotations = new Map();
+      simResult.flights.forEach(f => {
+        if (!rotations.has(f.tailId)) rotations.set(f.tailId, []);
+        rotations.get(f.tailId).push(f);
+      });
+
+      // Sort tails VT-DS01 to VT-DS16
+      const sortedTails = Array.from(rotations.keys()).sort();
+
+      sortedTails.forEach(tailId => {
+        const legs = rotations.get(tailId);
+        legs.sort((a, b) => a.legOrder - b.legOrder);
+
+        const hasDelay = legs.some(l => l.isDelayed);
+        const maxDelay = Math.max(0, ...legs.map(l => l.depDelayMins));
+
+        const row = document.createElement('div');
+        row.className = 'flex items-center hover:bg-blue-50/40 transition h-8 relative';
+
+        // Left Tail Label Column
+        const tailCol = document.createElement('div');
+        tailCol.className = 'w-28 flex-shrink-0 px-2 flex items-center justify-between border-r border-[#CBD5E1] bg-white h-full z-10';
+        tailCol.innerHTML = `
+          <span class="font-extrabold text-[11px] text-[#17243A]">${tailId}</span>
+          <span class="text-[9px] px-1 rounded font-bold ${hasDelay ? 'bg-amber-100 text-[#B45309]' : 'bg-slate-100 text-slate-500'}">
+            ${hasDelay ? `+${maxDelay}m` : '0m'}
+          </span>
+        `;
+        row.appendChild(tailCol);
+
+        // Timeline Bar Track
+        const track = document.createElement('div');
+        track.className = 'flex-1 h-full relative overflow-hidden';
+
+        // Render each leg bar
+        legs.forEach((leg, idx) => {
+          // Scheduled Bar Position (Ghost)
+          const schedLeftPct = ((leg.scheduledDepMin - TIMELINE_START_MIN) / TIMELINE_TOTAL_MIN) * 100;
+          const schedWidthPct = (leg.blockMinutes / TIMELINE_TOTAL_MIN) * 100;
+
+          // Actual Bar Position
+          const actLeftPct = ((leg.actualDepMin - TIMELINE_START_MIN) / TIMELINE_TOTAL_MIN) * 100;
+          const actWidthPct = (leg.blockMinutes / TIMELINE_TOTAL_MIN) * 100;
+
+          // If delayed, draw scheduled ghost bar
+          if (leg.isDelayed) {
+            const ghostBar = document.createElement('div');
+            ghostBar.className = 'absolute top-1.5 h-5 rounded-xs border border-dashed border-[#CBD5E1] bg-slate-100/60 z-0';
+            ghostBar.style.left = `${Math.max(0, schedLeftPct)}%`;
+            ghostBar.style.width = `${Math.max(1, schedWidthPct)}%`;
+            track.appendChild(ghostBar);
+          }
+
+          // Actual Flight Bar
+          const bar = document.createElement('div');
+          let barBg = 'bg-[#2685E8] hover:bg-blue-600 text-white';
+          if (leg.depDelayMins >= 60) {
+            barBg = 'bg-[#E34D59] hover:bg-red-700 text-white';
+          } else if (leg.depDelayMins > 0) {
+            barBg = 'bg-[#F2A93B] hover:bg-amber-600 text-white';
+          }
+
+          bar.className = `absolute top-1.5 h-5 rounded-xs ${barBg} text-[10px] px-1 flex items-center justify-between shadow-xs cursor-pointer z-10 truncate`;
+          bar.style.left = `${Math.max(0, actLeftPct)}%`;
+          bar.style.width = `${Math.max(1.8, actWidthPct)}%`;
+          bar.title = `${leg.flightId} (${leg.origin}➔${leg.destination}) Sched: ${leg.scheduledDep}-${leg.scheduledArr} | Act: ${leg.actualDep}-${leg.actualArr}`;
+
+          bar.innerHTML = `
+            <span class="font-extrabold truncate">${leg.flightId}</span>
+            <span class="text-[9px] opacity-90 hidden sm:inline ml-1">${leg.origin}➔${leg.destination}</span>
+          `;
+
+          bar.addEventListener('click', () => showFlightDetailModal(leg));
+          track.appendChild(bar);
+
+          // Turnaround Interval indicator before leg (if idx > 0)
+          if (idx > 0) {
+            const prevLeg = legs[idx - 1];
+            const gapMin = leg.actualDepMin - prevLeg.actualArrMin;
+            const turnLeftPct = ((prevLeg.actualArrMin - TIMELINE_START_MIN) / TIMELINE_TOTAL_MIN) * 100;
+            const turnWidthPct = (gapMin / TIMELINE_TOTAL_MIN) * 100;
+
+            if (turnWidthPct > 0.5) {
+              const turnLine = document.createElement('div');
+              turnLine.className = 'absolute top-3.5 h-1 bg-[#25A56A]/60 rounded-full z-0';
+              turnLine.style.left = `${Math.max(0, turnLeftPct)}%`;
+              turnLine.style.width = `${Math.max(0.5, turnWidthPct)}%`;
+              turnLine.title = `Turnaround: ${gapMin}m between ${prevLeg.flightId} and ${leg.flightId}`;
+              track.appendChild(turnLine);
+            }
+          }
+        });
+
+        row.appendChild(track);
+        container.appendChild(row);
+      });
+    }
+
+    // Show Flight Detail Inspector Modal
+    function showFlightDetailModal(leg) {
+      const modal = document.getElementById('flight-detail-modal');
+      document.getElementById('dtl-flight-id').textContent = leg.flightId;
+      document.getElementById('dtl-tail').textContent = `${leg.tailId} (Leg ${leg.legOrder})`;
+      document.getElementById('dtl-route').textContent = `${leg.origin} ➔ ${leg.destination}`;
+      document.getElementById('dtl-sched').textContent = `${leg.scheduledDep} ➔ ${leg.scheduledArr}`;
+      document.getElementById('dtl-act').textContent = `${leg.actualDep} ➔ ${leg.actualArr} (${leg.depDelayMins > 0 ? `+${leg.depDelayMins}m` : 'On Time'})`;
+      document.getElementById('dtl-pax').textContent = `${leg.pax} / 180 seats`;
+
+      const rawFlight = dataset.flights.find(f => f.flight_id === leg.flightId);
+      const turnaroundSlack = rawFlight.turnaround_before_min ? `${rawFlight.turnaround_before_min}m (${Math.max(0, rawFlight.turnaround_before_min - 30)}m slack)` : 'First Leg (N/A)';
+      document.getElementById('dtl-turnaround').textContent = turnaroundSlack;
+
+      document.getElementById('dtl-reason').textContent = leg.delayReasons.length > 0 ? leg.delayReasons.join('; ') : 'Flight operating on scheduled timetable (no disruption).';
+
+      modal.classList.remove('hidden');
+    }
+
+    // 3. RENDER AI DISPATCHER INTELLIGENCE PANEL
+    function renderAIDispatcher() {
+      if (!recoveryPlan) return;
+
+      const container = document.getElementById('ai-recommendations-list');
+      container.innerHTML = '';
+
+      // Check Standby Spares
+      const blrSpare = recoveryPlan.spareOpportunities.find(s => s.spareTailId === 'VT-DS17');
+      const delSpare = recoveryPlan.spareOpportunities.find(s => s.spareTailId === 'VT-DS18');
+
+      const blrBadge = document.getElementById('stby-blr-badge');
+      if (blrSpare && blrSpare.isEligible) {
+        blrBadge.className = 'px-1.5 py-0.2 rounded text-[10px] bg-emerald-100 text-[#25A56A] font-bold';
+        blrBadge.textContent = 'ELIGIBLE FOR SWAP';
+      } else {
+        blrBadge.className = 'px-1.5 py-0.2 rounded text-[10px] bg-slate-100 text-[#718096] font-bold';
+        blrBadge.textContent = 'READY 05:00';
+      }
+
+      const delBadge = document.getElementById('stby-del-badge');
+      if (delSpare && delSpare.isEligible) {
+        delBadge.className = 'px-1.5 py-0.2 rounded text-[10px] bg-emerald-100 text-[#25A56A] font-bold';
+        delBadge.textContent = 'ELIGIBLE FOR SWAP';
+      } else {
+        delBadge.className = 'px-1.5 py-0.2 rounded text-[10px] bg-slate-100 text-[#718096] font-bold';
+        delBadge.textContent = 'READY 05:00';
+      }
+
+      // Crew Compliance
+      const crewStat = document.getElementById('crew-comp-stat');
+      const crewDet = document.getElementById('crew-comp-detail');
+      if (simResult.summary.crewViolationsCount > 0) {
+        crewStat.textContent = `${simResult.summary.crewViolationsCount} VIOLATIONS`;
+        crewStat.className = 'text-[#E34D59] font-bold';
+        crewDet.textContent = `${simResult.summary.crewViolationsCount} crews exceed 600m statutory limit. Requires reserve crew dispatch.`;
+      } else {
+        crewStat.textContent = '16 / 16 LEGAL';
+        crewStat.className = 'text-[#25A56A] font-bold';
+        crewDet.textContent = 'All flight crews operating within statutory 600m duty limit.';
+      }
+
+      // 1. Standby Aircraft Opportunities
+      recoveryPlan.spareOpportunities.filter(s => s.isEligible).forEach(s => {
+        const card = document.createElement('div');
+        card.className = 'p-3 rounded bg-white border border-[#CBD5E1] shadow-xs space-y-2 text-xs font-mono';
+        card.innerHTML = `
+          <div class="flex items-center justify-between">
+            <span class="text-[9px] px-1.5 py-0.5 rounded bg-blue-50 text-[#2563EB] font-bold">AIRCRAFT SWAP</span>
+            <span class="text-[#25A56A] font-bold text-[10px]">SAVINGS: +${s.potentialDelayMinutesSaved}m</span>
+          </div>
+          <div class="font-bold text-[#17243A] text-xs">Deploy ${s.spareTailId} for ${s.targetTailId} at ${s.swapAirport}</div>
+          <p class="text-[11px] text-[#718096]">${s.recommendationText}</p>
+          <div class="flex justify-between items-center pt-1 border-t border-[#E3EAF2]">
+            <span class="text-[10px] text-[#718096]">Feasibility: High</span>
+            <button class="btn-prev-spare px-2 py-1 rounded bg-[#2563EB] hover:bg-blue-700 text-white text-[10px] font-bold transition">
+              Preview Delta
+            </button>
+          </div>
+        `;
+
+        card.querySelector('.btn-prev-spare').addEventListener('click', () => {
+          showPreviewModal({
+            title: `Spare Aircraft Swap: ${s.spareTailId} ➔ ${s.targetTailId}`,
+            subtitle: `Substitution at ${s.swapAirport} starting leg ${s.fromLegOrder}`,
+            beforeDelay: `+${simResult.summary.totalFlightDelayMinutes}m`,
+            beforeConns: `${simResult.summary.missedConnectionsCount} missed`,
+            afterDelay: `+${Math.max(0, simResult.summary.totalFlightDelayMinutes - s.potentialDelayMinutesSaved)}m`,
+            afterSaved: `-${s.potentialDelayMinutesSaved}m delay saved`,
+            constraints: s.operationalRequirements
+          });
+        });
+
+        container.appendChild(card);
+      });
+
+      // 2. Connection Holding Recommendations
+      recoveryPlan.connectionStrategies.forEach(cs => {
+        const isHold = cs.strategy === 'TACTICAL_HOLD';
+        const card = document.createElement('div');
+        card.className = `p-3 rounded bg-white border ${isHold ? 'border-blue-300' : 'border-[#CBD5E1]'} shadow-xs space-y-2 text-xs font-mono`;
+
+        card.innerHTML = `
+          <div class="flex items-center justify-between">
+            <span class="text-[9px] px-1.5 py-0.5 rounded ${isHold ? 'bg-blue-50 text-[#2563EB]' : 'bg-rose-50 text-[#E34D59]'} font-bold">
+              ${cs.strategy.replace('_', ' ')}
+            </span>
+            <span class="text-[#718096] font-bold text-[10px]">${cs.passengers} PAX</span>
+          </div>
+          <div class="font-bold text-[#17243A] text-xs">${cs.actionTitle}</div>
+          <p class="text-[11px] text-[#718096]">${cs.justification}</p>
+          <div class="flex justify-between items-center pt-1 border-t border-[#E3EAF2]">
+            <span class="text-[10px] text-[#718096]">Deficit: ${cs.deficitMinutes}m</span>
+            <button class="btn-prev-conn px-2 py-1 rounded bg-[#F1F5F9] hover:bg-[#E2E8F0] text-[#17243A] text-[10px] font-bold transition">
+              Preview Action
+            </button>
+          </div>
+        `;
+
+        card.querySelector('.btn-prev-conn').addEventListener('click', () => {
+          showPreviewModal({
+            title: cs.actionTitle,
+            subtitle: `Hub ${cs.hubAirport}: ${cs.fromFlightId} ➔ ${cs.toFlightId}`,
+            beforeDelay: `Buffer: ${cs.actualBufferMinutes}m (Req: ${cs.minConnectMinutes}m)`,
+            beforeConns: `${cs.passengers} passengers stranded`,
+            afterDelay: isHold ? 'Connection Made (0 Missed)' : 'Passengers Protected',
+            afterSaved: isHold ? `${cs.passengers} pax protected` : 'Meal/Hotel Vouchers Issued',
+            constraints: cs.constraintsToSatisfy
+          });
+        });
+
+        container.appendChild(card);
+      });
+
+      if (container.children.length === 0) {
+        container.innerHTML = `
+          <div class="p-3 rounded bg-emerald-50/50 border border-emerald-200 text-[#25A56A] text-xs font-mono">
+            <strong>All Rotations Nominal:</strong> No active network disruptions. 100% on-time flight schedule.
+          </div>
+        `;
+      }
+    }
+
+    function showPreviewModal(data) {
+      document.getElementById('prev-title').textContent = data.title;
+      document.getElementById('prev-sub').textContent = data.subtitle;
+      document.getElementById('prev-before-delay').textContent = data.beforeDelay;
+      document.getElementById('prev-before-conns').textContent = data.beforeConns;
+      document.getElementById('prev-after-delay').textContent = data.afterDelay;
+      document.getElementById('prev-after-saved').textContent = data.afterSaved;
+
+      const constrDiv = document.getElementById('prev-constraints');
+      constrDiv.innerHTML = '';
+      data.constraints.forEach(c => {
+        const p = document.createElement('div');
+        p.textContent = `• ${c}`;
+        constrDiv.appendChild(p);
+      });
+
+      document.getElementById('preview-modal').classList.remove('hidden');
+    }
+
+    // 4. RENDER LIVE EVENT FEED
+    function renderLiveEventFeed() {
+      if (!simResult) return;
+
+      const feed = document.getElementById('live-event-feed');
+      feed.innerHTML = '';
+
+      const events = [];
+
+      // Closure event
+      if (activeDisruption.airportId && activeDisruption.durationMinutes > 0) {
+        events.push({
+          time: activeDisruption.startTime,
+          type: 'CRITICAL',
+          text: `Airport closure applied at ${activeDisruption.airportId} for ${activeDisruption.durationMinutes}m`
+        });
+      }
+
+      // Delayed flight events
+      simResult.flights.filter(f => f.isDelayed).slice(0, 10).forEach(f => {
+        events.push({
+          time: f.actualDep,
+          type: 'DELAY',
+          text: `${f.flightId} (${f.origin}➔${f.destination}): +${f.depDelayMins}m delay`
+        });
+      });
+
+      // Missed connections
+      simResult.connections.filter(c => c.isMissed).forEach(c => {
+        events.push({
+          time: c.actualOutboundDep,
+          type: 'MISSED',
+          text: `${c.connectionId} missed at ${c.airport} (${c.passengers} pax stranded)`
+        });
+      });
+
+      // Crew violations
+      simResult.crews.filter(cr => cr.isViolation).forEach(cr => {
+        events.push({
+          time: cr.actualDutyEnd,
+          type: 'CREW',
+          text: `Crew ${cr.crewId} duty timeout (+${cr.exceededMinutes}m overtime)`
+        });
+      });
+
+      // Sort events chronologically
+      events.sort((a, b) => a.time.localeCompare(b.time));
+
+      document.getElementById('event-feed-count').textContent = `${events.length} logs`;
+
+      if (events.length === 0) {
+        feed.innerHTML = '<div class="p-2 rounded bg-[#F8FAFC] border border-[#E3EAF2] text-[#718096] italic">All 70 flights on schedule. 0 incidents.</div>';
+        return;
+      }
+
+      events.forEach(ev => {
+        const item = document.createElement('div');
+        let badgeColor = 'text-[#2563EB] bg-blue-50 border-blue-200';
+        if (ev.type === 'CRITICAL' || ev.type === 'MISSED') badgeColor = 'text-[#E34D59] bg-rose-50 border-rose-200';
+        else if (ev.type === 'DELAY') badgeColor = 'text-[#B45309] bg-amber-50 border-amber-200';
+
+        item.className = 'p-1.5 rounded bg-white border border-[#E3EAF2] flex flex-col space-y-0.5';
+        item.innerHTML = `
+          <div class="flex items-center justify-between text-[10px]">
+            <span class="font-bold text-[#17243A]">${ev.time} IST</span>
+            <span class="px-1 rounded text-[9px] font-bold border ${badgeColor}">${ev.type}</span>
+          </div>
+          <span class="text-[#718096] text-[10px] leading-tight">${ev.text}</span>
+        `;
+        feed.appendChild(item);
+      });
+    }
+  </script>
+</body>
+</html>
