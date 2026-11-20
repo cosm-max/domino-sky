@@ -9,9 +9,16 @@
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import { readFileSync, existsSync } from 'node:fs';
 import { resolve, join } from 'node:path';
-import type { DominoSkyDataset, ClosureInput } from './types.ts';
+import type {
+  DominoSkyDataset,
+  ClosureInput,
+  ChatMessage,
+  PreviewProposal,
+} from './types.ts';
 import { DominoSkySimulator } from './engine.ts';
 import { DominoSkyRecoveryEngine } from './recovery.ts';
+import { DominoSkyAIDispatcher } from './ai-dispatcher.ts';
+
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const HOST = process.env.HOST || '0.0.0.0';
@@ -26,6 +33,11 @@ if (!existsSync(datasetPath)) {
 const dataset: DominoSkyDataset = JSON.parse(readFileSync(datasetPath, 'utf8'));
 const simulator = new DominoSkySimulator(dataset);
 const recoveryEngine = new DominoSkyRecoveryEngine(dataset);
+const aiDispatcher = new DominoSkyAIDispatcher(
+  dataset,
+  simulator,
+  recoveryEngine
+);
 
 console.log(`[DominoSky] Dataset loaded successfully (${dataset.airports.length} airports, ${dataset.flights.length} flights, ${dataset.connections.length} connections, ${dataset.crews.length} crews, ${dataset.spare_aircraft.length} spares)`);
 
@@ -133,6 +145,130 @@ export const server = createServer(async (req, res) => {
         effectiveFromLegOrder: parseInt(body.effectiveFromLegOrder, 10) || 1,
       });
       sendJson(res, 200, evaluation);
+      return;
+    }
+
+    // GEMINI AI DISPATCHER API
+
+    // GET /api/dispatcher/status
+    if (pathname === '/api/dispatcher/status' && req.method === 'GET') {
+      sendJson(res, 200, aiDispatcher.getStatus());
+      return;
+    }
+
+    // POST /api/dispatcher/analyze
+    if (pathname === '/api/dispatcher/analyze' && req.method === 'POST') {
+      const body = await parseRequestBody(req);
+
+      const input: ClosureInput = {
+        airportId: body.airportId || null,
+        startTime: body.startTime || '08:00',
+        durationMinutes:
+          typeof body.durationMinutes === 'number'
+            ? body.durationMinutes
+            : 0,
+      };
+
+      const simResult = simulator.simulate(input);
+      const recoveryPlan = recoveryEngine.evaluate(simResult);
+
+      const analysis = await aiDispatcher.analyzeDisruption(
+        input,
+        simResult,
+        recoveryPlan
+      );
+
+      sendJson(res, 200, {
+        analysis,
+        simulationSummary: simResult.summary,
+      });
+      return;
+    }
+
+    // POST /api/dispatcher/chat
+    if (pathname === '/api/dispatcher/chat' && req.method === 'POST') {
+      const body = await parseRequestBody(req);
+
+      const question =
+        typeof body.question === 'string' ? body.question.trim() : '';
+
+      if (!question || question.length > 1000) {
+        sendJson(res, 400, {
+          error: 'Question is required and must be under 1000 characters.',
+        });
+        return;
+      }
+
+      const input: ClosureInput = {
+        airportId: body.airportId || null,
+        startTime: body.startTime || '08:00',
+        durationMinutes:
+          typeof body.durationMinutes === 'number'
+            ? body.durationMinutes
+            : 0,
+      };
+
+      const history: ChatMessage[] = Array.isArray(body.history)
+        ? body.history
+          .filter(
+            (message: any) =>
+              message &&
+              (message.role === 'user' || message.role === 'model') &&
+              typeof message.text === 'string'
+          )
+          .slice(-6)
+          .map((message: any) => ({
+            role: message.role,
+            text: message.text.slice(0, 2000),
+          }))
+        : [];
+
+      const simResult = simulator.simulate(input);
+      const recoveryPlan = recoveryEngine.evaluate(simResult);
+
+      const response = await aiDispatcher.chat(
+        question,
+        history,
+        input,
+        simResult,
+        recoveryPlan
+      );
+
+      sendJson(res, 200, response);
+      return;
+    }
+
+    // POST /api/dispatcher/preview
+    if (pathname === '/api/dispatcher/preview' && req.method === 'POST') {
+      const body = await parseRequestBody(req);
+
+      const input: ClosureInput = {
+        airportId: body.airportId || null,
+        startTime: body.startTime || '08:00',
+        durationMinutes:
+          typeof body.durationMinutes === 'number'
+            ? body.durationMinutes
+            : 0,
+      };
+
+      const proposal = body.proposal as PreviewProposal;
+
+      if (
+        !proposal ||
+        !['spare_aircraft_substitution', 'connection_hold',
+          'turnaround_firewall', 'unsupported'].includes(proposal.actionType)
+      ) {
+        sendJson(res, 400, { error: 'Invalid preview proposal.' });
+        return;
+      }
+
+      const preview = aiDispatcher.evaluatePreview(proposal, input);
+
+      sendJson(res, 200, {
+        preview,
+        previewIsEstimate: true,
+        note: 'Preview values are estimates, not verified outcomes from a re-simulated recovery plan.',
+      });
       return;
     }
 

@@ -28,7 +28,8 @@ import type {
   PreviewResult,
 } from './types.ts';
 import { DominoSkySimulator } from './engine.ts';
-import { DominoSkyRecoveryEngine, RecoveryPlan } from './recovery.ts';
+import { DominoSkyRecoveryEngine } from './recovery.ts';
+import type { RecoveryPlan } from './recovery.ts';
 import { parseTimeToMinutes, formatMinutesToTime } from './time-utils.ts';
 
 // 1. Environment & API Key loader
@@ -290,61 +291,61 @@ Provide a structured operational briefing in valid JSON matching this TypeScript
 
     const sanitizedRootCauses = Array.isArray(raw.root_causes)
       ? raw.root_causes
-          .filter((rc: any) => rc && validFlights.has(rc.flight_id) && validTails.has(rc.tail_id))
-          .map((rc: any) => ({
-            flight_id: String(rc.flight_id),
-            tail_id: String(rc.tail_id),
-            explanation: String(rc.explanation || ''),
-          }))
+        .filter((rc: any) => rc && validFlights.has(rc.flight_id) && validTails.has(rc.tail_id))
+        .map((rc: any) => ({
+          flight_id: String(rc.flight_id),
+          tail_id: String(rc.tail_id),
+          explanation: String(rc.explanation || ''),
+        }))
       : [];
 
     const sanitizedRecs: AIDispatcherRecommendation[] = Array.isArray(raw.recommendations)
       ? raw.recommendations.map((rec: any, idx: number) => {
-          const recFlights = Array.isArray(rec.affected_flights)
-            ? rec.affected_flights.filter((f: string) => validFlights.has(f))
-            : [];
-          const recTails = Array.isArray(rec.affected_aircraft)
-            ? rec.affected_aircraft.filter((t: string) => validTails.has(t))
-            : [];
+        const recFlights = Array.isArray(rec.affected_flights)
+          ? rec.affected_flights.filter((f: string) => validFlights.has(f))
+          : [];
+        const recTails = Array.isArray(rec.affected_aircraft)
+          ? rec.affected_aircraft.filter((t: string) => validTails.has(t))
+          : [];
 
-          let canPreview = Boolean(rec.can_preview);
-          let previewType = rec.preview_type;
-          let previewPayload = rec.preview_payload || {};
+        let canPreview = Boolean(rec.can_preview);
+        let previewType = rec.preview_type;
+        let previewPayload = rec.preview_payload || {};
 
-          // Auto-wire preview payload for spare substitution if detected
-          if (rec.category === 'spare_aircraft' || String(rec.title).toLowerCase().includes('spare')) {
-            const eligibleSpare = recoveryPlan.spareOpportunities.find((s) => s.isEligible);
-            if (eligibleSpare) {
-              canPreview = true;
-              previewType = 'spare_aircraft_substitution';
-              previewPayload = {
-                spareTailId: eligibleSpare.spareTailId,
-                targetTailId: eligibleSpare.targetTailId,
-                swapAirport: eligibleSpare.swapAirport,
-                effectiveFromLegOrder: eligibleSpare.fromLegOrder,
-              };
-            }
+        // Auto-wire preview payload for spare substitution if detected
+        if (rec.category === 'spare_aircraft' || String(rec.title).toLowerCase().includes('spare')) {
+          const eligibleSpare = recoveryPlan.spareOpportunities.find((s) => s.isEligible);
+          if (eligibleSpare) {
+            canPreview = true;
+            previewType = 'spare_aircraft_substitution';
+            previewPayload = {
+              spareTailId: eligibleSpare.spareTailId,
+              targetTailId: eligibleSpare.targetTailId,
+              swapAirport: eligibleSpare.swapAirport,
+              effectiveFromLegOrder: eligibleSpare.fromLegOrder,
+            };
           }
+        }
 
-          return {
-            recommendation_id: rec.recommendation_id || `REC-${idx + 1}`,
-            title: String(rec.title || 'Operational Recovery Action'),
-            category: rec.category || 'aircraft_rotation',
-            explanation: String(rec.explanation || ''),
-            evidence: String(rec.evidence || ''),
-            affected_flights: recFlights,
-            affected_aircraft: recTails,
-            feasibility: rec.feasibility || 'medium',
-            operational_constraints: Array.isArray(rec.operational_constraints)
-              ? rec.operational_constraints.map(String)
-              : [],
-            expected_benefit: String(rec.expected_benefit || ''),
-            limitations: String(rec.limitations || ''),
-            can_preview: canPreview,
-            preview_type: previewType,
-            preview_payload: previewPayload,
-          };
-        })
+        return {
+          recommendation_id: rec.recommendation_id || `REC-${idx + 1}`,
+          title: String(rec.title || 'Operational Recovery Action'),
+          category: rec.category || 'aircraft_rotation',
+          explanation: String(rec.explanation || ''),
+          evidence: String(rec.evidence || ''),
+          affected_flights: recFlights,
+          affected_aircraft: recTails,
+          feasibility: rec.feasibility || 'medium',
+          operational_constraints: Array.isArray(rec.operational_constraints)
+            ? rec.operational_constraints.map(String)
+            : [],
+          expected_benefit: String(rec.expected_benefit || ''),
+          limitations: String(rec.limitations || ''),
+          can_preview: canPreview,
+          preview_type: previewType,
+          preview_payload: previewPayload,
+        };
+      })
       : [];
 
     return {
